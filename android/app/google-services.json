@@ -1,0 +1,47 @@
+{
+  "project_info": {
+    "project_number": "156599715607",
+    "project_id": "shelfsense-325a4",
+    "storage_bucket": "shelfsense-325a4.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:156599715607:android:937d4f6bfd50a5d16e1952",
+        "android_client_info": {
+          "package_name": "com.example.k11_project"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "156599715607-2lbju10lm3neuff4hjis3a5jhldcckem.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.example.k11_project",
+            "certificate_hash": "4e15a12194d93b17dc507a441dcabf004830eeea"
+          }
+        },
+        {
+          "client_id": "156599715607-02sekitnsi59tt1igj0ej3rf8visfdpn.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyC1Mk855e_2_8KuSsLUgFi387lQBiekTXA"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "156599715607-02sekitnsi59tt1igj0ej3rf8visfdpn.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
