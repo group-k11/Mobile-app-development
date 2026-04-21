@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import '../utils/pdf_service.dart';
 
 /// Cart screen with checkout — records sale, updates stock, shows profit.
 class CartScreen extends StatefulWidget {
@@ -18,7 +19,8 @@ class _CartScreenState extends State<CartScreen> {
   double get _totalPrice {
     double total = 0;
     for (final item in CartScreen.cartItems) {
-      total += (item['price'] as double?) ?? 0;
+      final qty = (item['quantity'] as int?) ?? 1;
+      total += ((item['price'] as double?) ?? 0) * qty;
     }
     return total;
   }
@@ -26,19 +28,34 @@ class _CartScreenState extends State<CartScreen> {
   double get _totalProfit {
     double profit = 0;
     for (final item in CartScreen.cartItems) {
+      final qty = (item['quantity'] as int?) ?? 1;
       final sell = (item['price'] as double?) ?? 0;
       final cost = (item['costPrice'] as double?) ?? 0;
-      profit += (sell - cost);
+      profit += (sell - cost) * qty;
     }
     return profit;
   }
 
-  void _removeItem(int index) {
-    setState(() => CartScreen.cartItems.removeAt(index));
+  void _updateQuantity(int index, int delta) {
+    setState(() {
+      final item = CartScreen.cartItems[index];
+      final currentQty = (item['quantity'] as int?) ?? 1;
+      final newQty = currentQty + delta;
+      if (newQty <= 0) {
+        CartScreen.cartItems.removeAt(index);
+      } else {
+        item['quantity'] = newQty;
+      }
+    });
   }
 
   void _clearCart() {
     setState(() => CartScreen.cartItems.clear());
+  }
+
+  Future<void> _handlePdfExport(double total) async {
+    final pdf = await PdfService.generatePdfBill(CartScreen.cartItems, total);
+    await PdfService.previewOrSharePdf(pdf);
   }
 
   Future<void> _checkout() async {
@@ -59,6 +76,7 @@ class _CartScreenState extends State<CartScreen> {
                   'price': item['price'],
                   'costPrice': item['costPrice'] ?? 0,
                   'barcode': item['barcode'],
+                  'quantity': item['quantity'] ?? 1,
                 })
             .toList(),
         'timestamp': FieldValue.serverTimestamp(),
@@ -67,9 +85,10 @@ class _CartScreenState extends State<CartScreen> {
       // Update each product stock and lastSoldDate
       for (final item in CartScreen.cartItems) {
         final docId = item['docId'] as String?;
+        final qty = (item['quantity'] as int?) ?? 1;
         if (docId != null) {
           await firestore.collection('products').doc(docId).update({
-            'quantity': FieldValue.increment(-1),
+            'quantity': FieldValue.increment(-qty),
             'lastSoldDate': Timestamp.fromDate(DateTime.now()),
           });
         }
@@ -101,15 +120,17 @@ class _CartScreenState extends State<CartScreen> {
             ],
           ),
           actions: [
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton(
-                onPressed: () => Navigator.pop(ctx),
-                style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.green,
-                    foregroundColor: Colors.white),
-                child: const Text('Done'),
-              ),
+            TextButton.icon(
+              onPressed: () => _handlePdfExport(savedTotal),
+              icon: const Icon(Icons.picture_as_pdf),
+              label: const Text('PDF'),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.pop(ctx),
+              style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.green,
+                  foregroundColor: Colors.white),
+              child: const Text('Done'),
             ),
           ],
         ),
@@ -171,19 +192,19 @@ class _CartScreenState extends State<CartScreen> {
                           ),
                           title: Text(item['name'] ?? 'Unknown',
                               style: const TextStyle(fontWeight: FontWeight.bold)),
-                          subtitle: Text('Barcode: ${item['barcode']}'),
+                          subtitle: Text('₹${((item['price'] as double) * (item['quantity'] ?? 1)).toStringAsFixed(2)}'),
                           trailing: Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              Text('₹${(item['price'] as double).toStringAsFixed(2)}',
-                                  style: const TextStyle(
-                                      fontSize: 16,
-                                      fontWeight: FontWeight.bold,
-                                      color: Color(0xFF00BFA6))),
-                              const SizedBox(width: 8),
                               IconButton(
-                                icon: const Icon(Icons.close, color: Colors.red),
-                                onPressed: () => _removeItem(index),
+                                icon: const Icon(Icons.remove_circle_outline, color: Colors.orange),
+                                onPressed: () => _updateQuantity(index, -1),
+                              ),
+                              Text('${item['quantity'] ?? 1}',
+                                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                              IconButton(
+                                icon: const Icon(Icons.add_circle_outline, color: Color(0xFF00BFA6)),
+                                onPressed: () => _updateQuantity(index, 1),
                               ),
                             ],
                           ),

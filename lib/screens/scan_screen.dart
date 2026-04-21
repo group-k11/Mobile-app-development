@@ -61,6 +61,45 @@ class _ScanScreenState extends State<ScanScreen> {
     });
   }
 
+  void _showAddStockDialog(String docId, String name) {
+    final qtyController = TextEditingController();
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('Add Stock: $name'),
+        content: TextField(
+          controller: qtyController,
+          keyboardType: TextInputType.number,
+          decoration: const InputDecoration(
+            labelText: 'Enter quantity to add',
+            border: OutlineInputBorder(),
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+          ElevatedButton(
+            onPressed: () async {
+              final added = int.tryParse(qtyController.text);
+              if (added != null && added > 0) {
+                final messenger = ScaffoldMessenger.of(context);
+                final nav = Navigator.of(context);
+                await FirebaseFirestore.instance.collection('products').doc(docId).update({
+                  'quantity': FieldValue.increment(added),
+                });
+                nav.pop();
+                messenger.showSnackBar(
+                  const SnackBar(content: Text('Stock updated successfully'), backgroundColor: Colors.green),
+                );
+              }
+            },
+            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF00BFA6), foregroundColor: Colors.white),
+            child: const Text('Update'),
+          ),
+        ],
+      ),
+    );
+  }
+
   void _showProductDialog({
     required String docId,
     required String name,
@@ -120,32 +159,51 @@ class _ScanScreenState extends State<ScanScreen> {
             onPressed: () => Navigator.pop(ctx),
             child: const Text('Cancel'),
           ),
-          ElevatedButton.icon(
-            onPressed: quantity > 0
-                ? () {
-                    CartScreen.cartItems.add({
-                      'docId': docId,
-                      'name': name,
-                      'price': price,
-                      'costPrice': costPrice,
-                      'barcode': barcode,
-                    });
-                    Navigator.pop(ctx);
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text('$name added to cart!'),
-                        backgroundColor: Colors.green,
-                      ),
-                    );
-                  }
-                : null,
-            icon: const Icon(Icons.add_shopping_cart),
-            label: const Text('Add to Cart'),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF1E3A5F),
-              foregroundColor: Colors.white,
+          if (quantity > 0)
+            ElevatedButton.icon(
+              onPressed: () {
+                // Check if already in cart
+                final existingIndex = CartScreen.cartItems.indexWhere((item) => item['docId'] == docId);
+                if (existingIndex != -1) {
+                  CartScreen.cartItems[existingIndex]['quantity'] = (CartScreen.cartItems[existingIndex]['quantity'] ?? 1) + 1;
+                } else {
+                  CartScreen.cartItems.add({
+                    'docId': docId,
+                    'name': name,
+                    'price': price,
+                    'costPrice': costPrice,
+                    'barcode': barcode,
+                    'quantity': 1,
+                  });
+                }
+                Navigator.pop(ctx);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('$name added to cart!'),
+                    backgroundColor: Colors.green,
+                  ),
+                );
+              },
+              icon: const Icon(Icons.add_shopping_cart),
+              label: const Text('Add to Cart'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF1E3A5F),
+                foregroundColor: Colors.white,
+              ),
+            )
+          else
+            ElevatedButton.icon(
+              onPressed: () {
+                Navigator.pop(ctx);
+                _showAddStockDialog(docId, name);
+              },
+              icon: const Icon(Icons.add_box),
+              label: const Text('Add Stock'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF00BFA6),
+                foregroundColor: Colors.white,
+              ),
             ),
-          ),
         ],
       ),
     );
