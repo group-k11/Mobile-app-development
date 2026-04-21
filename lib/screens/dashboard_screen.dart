@@ -1,239 +1,164 @@
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
-import '../providers/auth_provider.dart';
-import '../providers/product_provider.dart';
-import '../providers/sales_provider.dart';
-import '../utils/constants.dart';
-import '../utils/helpers.dart';
-import '../widgets/inventory_alert_widget.dart';
-import '../widgets/sales_chart_widget.dart';
-import '../widgets/sync_indicator_widget.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 
-class DashboardScreen extends StatefulWidget {
+/// Dashboard — Sales Analytics Module with named product alerts.
+class DashboardScreen extends StatelessWidget {
   const DashboardScreen({super.key});
 
   @override
-  State<DashboardScreen> createState() => _DashboardScreenState();
-}
-
-class _DashboardScreenState extends State<DashboardScreen> {
-  Map<String, double> _weeklySales = {};
-  Map<String, int> _topProducts = {};
-  bool _isLoadingCharts = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _loadData();
-  }
-
-  Future<void> _loadData() async {
-    final productProvider =
-        Provider.of<ProductProvider>(context, listen: false);
-    final salesProvider = Provider.of<SalesProvider>(context, listen: false);
-
-    await productProvider.loadProducts();
-    await salesProvider.loadSales();
-    await salesProvider.loadAllSales();
-
-    // Try to sync pending offline sales
-    await salesProvider.syncOfflineSales();
-
-    setState(() {
-      _isLoadingCharts = true;
-    });
-
-    try {
-      _weeklySales = await salesProvider.getWeeklySales();
-      _topProducts = await salesProvider.getTopSellingProducts();
-    } catch (e) {
-      // Silently handle chart data errors
-    }
-
-    if (mounted) {
-      setState(() {
-        _isLoadingCharts = false;
-      });
-    }
-  }
-
-  @override
   Widget build(BuildContext context) {
-    final authProvider = Provider.of<AuthProvider>(context);
-    final productProvider = Provider.of<ProductProvider>(context);
-    final salesProvider = Provider.of<SalesProvider>(context);
+    final now = DateTime.now();
+    final todayStart = DateTime(now.year, now.month, now.day);
+    final todayEnd = todayStart.add(const Duration(days: 1));
 
     return Scaffold(
-      backgroundColor: AppColors.background,
-      body: RefreshIndicator(
-        onRefresh: _loadData,
-        child: CustomScrollView(
-          slivers: [
-            // App Bar
-            SliverAppBar(
-              expandedHeight: 140,
-              floating: false,
-              pinned: true,
-              backgroundColor: AppColors.primary,
-              flexibleSpace: FlexibleSpaceBar(
-                titlePadding:
-                    const EdgeInsets.only(left: 20, bottom: 16),
-                title: Column(
-                  mainAxisAlignment: MainAxisAlignment.end,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      '${getGreeting()} 👋',
-                      style: const TextStyle(
-                        fontSize: 12,
-                        color: Colors.white70,
+      appBar: AppBar(
+        title: const Text('ShelfSense Dashboard'),
+        backgroundColor: const Color(0xFF1E3A5F),
+        foregroundColor: Colors.white,
+      ),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // ── Sales Analytics Module ──
+            const Text(
+              'Sales Analytics Module',
+              style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 12),
+
+            StreamBuilder<QuerySnapshot>(
+              stream: FirebaseFirestore.instance
+                  .collection('sales')
+                  .where('timestamp', isGreaterThanOrEqualTo: Timestamp.fromDate(todayStart))
+                  .where('timestamp', isLessThan: Timestamp.fromDate(todayEnd))
+                  .snapshots(),
+              builder: (context, snapshot) {
+                double revenue = 0, profit = 0;
+                int items = 0, txns = 0;
+
+                if (snapshot.hasData) {
+                  txns = snapshot.data!.docs.length;
+                  for (final doc in snapshot.data!.docs) {
+                    final d = doc.data() as Map<String, dynamic>;
+                    revenue += (d['totalAmount'] as num?)?.toDouble() ?? 0;
+                    profit += (d['totalProfit'] as num?)?.toDouble() ?? 0;
+                    items += (d['itemCount'] as num?)?.toInt() ?? 0;
+                  }
+                }
+
+                return Column(children: [
+                  Row(children: [
+                    Expanded(child: _card(Icons.currency_rupee, 'Revenue',
+                        '₹${revenue.toStringAsFixed(0)}', const Color(0xFF00BFA6))),
+                    const SizedBox(width: 10),
+                    Expanded(child: _card(Icons.trending_up, 'Profit',
+                        '₹${profit.toStringAsFixed(0)}', Colors.green)),
+                  ]),
+                  const SizedBox(height: 10),
+                  Row(children: [
+                    Expanded(child: _card(Icons.shopping_bag, 'Items Sold',
+                        '$items', const Color(0xFF4A90D9))),
+                    const SizedBox(width: 10),
+                    Expanded(child: _card(Icons.receipt, 'Transactions',
+                        '$txns', Colors.purple)),
+                  ]),
+                ]);
+              },
+            ),
+
+            const SizedBox(height: 24),
+
+            // ── Smart Product Alerts with product names ──
+            const Text(
+              'Intelligent Stock Alerts',
+              style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 4),
+            const Text(
+              'Real-time alerts for each product',
+              style: TextStyle(color: Colors.grey, fontSize: 13),
+            ),
+            const SizedBox(height: 12),
+
+            StreamBuilder<QuerySnapshot>(
+              stream: FirebaseFirestore.instance.collection('products').snapshots(),
+              builder: (context, snapshot) {
+                if (!snapshot.hasData) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+
+                // Build a flat list of alert entries: {name, alertType, color}
+                final alerts = <Map<String, dynamic>>[];
+
+                for (final doc in snapshot.data!.docs) {
+                  final d = doc.data() as Map<String, dynamic>;
+                  final name = d['name'] ?? 'Unknown';
+                  final qty = (d['quantity'] as num?)?.toInt() ?? 0;
+                  final lastSold = (d['lastSoldDate'] as Timestamp?)?.toDate();
+                  final expiry = (d['expiryDate'] as Timestamp?)?.toDate();
+
+                  if (qty == 0) {
+                    alerts.add({'name': name, 'label': 'Out of Stock', 'color': Colors.red, 'icon': Icons.error});
+                  } else if (qty < 5) {
+                    alerts.add({'name': name, 'label': 'Threshold-based Stock Alert', 'color': Colors.orange, 'icon': Icons.warning});
+                  }
+                  if (qty < 3 && qty > 0) {
+                    alerts.add({'name': name, 'label': 'Reorder Recommended', 'color': const Color(0xFF4A90D9), 'icon': Icons.replay});
+                  }
+                  if (lastSold != null && DateTime.now().difference(lastSold).inDays >= 30) {
+                    alerts.add({'name': name, 'label': 'Inactivity-based Stock Detection', 'color': Colors.grey, 'icon': Icons.inventory});
+                  }
+                  if (expiry != null) {
+                    if (expiry.isBefore(DateTime.now())) {
+                      alerts.add({'name': name, 'label': 'Expired', 'color': Colors.red.shade900, 'icon': Icons.event_busy});
+                    } else if (expiry.difference(DateTime.now()).inDays <= 7) {
+                      alerts.add({'name': name, 'label': 'Expiring Soon', 'color': Colors.deepOrange, 'icon': Icons.schedule});
+                    }
+                  }
+                }
+
+                if (alerts.isEmpty) {
+                  return Card(
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Row(children: const [
+                        Icon(Icons.check_circle, color: Colors.green),
+                        SizedBox(width: 12),
+                        Text('All products are in good condition!',
+                            style: TextStyle(color: Colors.green)),
+                      ]),
+                    ),
+                  );
+                }
+
+                // Display each alert with product name
+                return ListView.builder(
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  itemCount: alerts.length,
+                  itemBuilder: (context, index) {
+                    final alert = alerts[index];
+                    final color = alert['color'] as Color;
+                    return Card(
+                      margin: const EdgeInsets.only(bottom: 6),
+                      child: ListTile(
+                        leading: Icon(alert['icon'] as IconData, color: color),
+                        title: Text(
+                          alert['name'] as String,
+                          style: const TextStyle(fontWeight: FontWeight.bold),
+                        ),
+                        subtitle: Text(
+                          alert['label'] as String,
+                          style: TextStyle(color: color, fontSize: 12),
+                        ),
                       ),
-                    ),
-                    Text(
-                      authProvider.currentUser?.name ?? 'Store Owner',
-                      style: const TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.white,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              actions: [
-                // Sync indicator
-                if (salesProvider.pendingSyncCount > 0)
-                  Padding(
-                    padding: const EdgeInsets.only(right: 4),
-                    child: SyncIndicatorWidget(
-                      pendingCount: salesProvider.pendingSyncCount,
-                      onTap: () async {
-                        final messenger = ScaffoldMessenger.of(context);
-                        final count = await salesProvider.syncOfflineSales();
-                        messenger.showSnackBar(
-                            SnackBar(
-                              content: Text(count > 0
-                                  ? '$count sales synced!'
-                                  : 'No pending sales to sync'),
-                              backgroundColor: count > 0
-                                  ? AppColors.success
-                                  : AppColors.warning,
-                            ),
-                          );
-                      },
-                    ),
-                  ),
-                IconButton(
-                  icon: const Icon(Icons.refresh, color: Colors.white),
-                  onPressed: _loadData,
-                ),
-              ],
-            ),
-
-            // Stats Cards
-            SliverToBoxAdapter(
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    // Quick Stats Row
-                    Row(
-                      children: [
-                        Expanded(
-                          child: _buildStatCard(
-                            'Products',
-                            '${productProvider.totalProducts}',
-                            Icons.inventory_2_outlined,
-                            AppColors.primaryLight,
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: _buildStatCard(
-                            'Today\'s Sales',
-                            formatCurrencyCompact(salesProvider.todayTotal),
-                            Icons.point_of_sale,
-                            AppColors.success,
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: _buildStatCard(
-                            'Low Stock',
-                            '${productProvider.lowStockProducts.length}',
-                            Icons.warning_amber_rounded,
-                            productProvider.lowStockProducts.isEmpty
-                                ? AppColors.success
-                                : AppColors.warning,
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: _buildStatCard(
-                            'Out of Stock',
-                            '${productProvider.outOfStockProducts.length}',
-                            Icons.remove_shopping_cart_outlined,
-                            productProvider.outOfStockProducts.isEmpty
-                                ? AppColors.success
-                                : AppColors.error,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-            ),
-
-            // Alerts Section
-            SliverToBoxAdapter(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Padding(
-                    padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                    child: Text('Inventory Alerts', style: AppTextStyles.heading3),
-                  ),
-                  InventoryAlertWidget(
-                    lowStockProducts: productProvider.lowStockProducts,
-                    expiringSoonProducts: productProvider.expiringSoonProducts,
-                    deadStockProducts: productProvider.deadStockProducts,
-                  ),
-                ],
-              ),
-            ),
-
-            // Weekly Sales Chart
-            SliverToBoxAdapter(
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: _isLoadingCharts
-                    ? const Center(child: CircularProgressIndicator())
-                    : SalesBarChart(
-                        data: _weeklySales,
-                        title: 'Weekly Sales',
-                      ),
-              ),
-            ),
-
-            // Top Products Chart
-            SliverToBoxAdapter(
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-                child: _isLoadingCharts
-                    ? const SizedBox()
-                    : TopProductsChart(data: _topProducts),
-              ),
-            ),
-
-            // Bottom spacer for bottom nav
-            const SliverToBoxAdapter(
-              child: SizedBox(height: 80),
+                    );
+                  },
+                );
+              },
             ),
           ],
         ),
@@ -241,51 +166,19 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
-  Widget _buildStatCard(
-      String title, String value, IconData icon, Color color) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: const [
-          BoxShadow(
-            color: AppColors.cardShadow,
-            blurRadius: 8,
-            offset: Offset(0, 3),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(
-              color: color.withValues(alpha: 0.1),
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: Icon(icon, color: color, size: 22),
-          ),
-          const SizedBox(height: 12),
-          Text(
-            value,
-            style: TextStyle(
-              fontSize: 20,
-              fontWeight: FontWeight.bold,
-              color: color,
-            ),
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-          ),
+  Widget _card(IconData icon, String label, String value, Color color) {
+    return Card(
+      elevation: 3,
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(children: [
+          Icon(icon, size: 28, color: color),
+          const SizedBox(height: 8),
+          Text(value,
+              style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: color)),
           const SizedBox(height: 4),
-          Text(
-            title,
-            style: AppTextStyles.caption,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-          ),
-        ],
+          Text(label, style: const TextStyle(color: Colors.grey, fontSize: 13)),
+        ]),
       ),
     );
   }

@@ -1,15 +1,12 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
-import 'package:provider/provider.dart';
-import '../providers/product_provider.dart';
-import '../services/barcode_lookup_service.dart';
-import '../utils/constants.dart';
-import '../utils/helpers.dart';
-import '../widgets/barcode_scanner_widget.dart';
-import '../widgets/scan_status_widget.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:mobile_scanner/mobile_scanner.dart';
 import 'add_product_screen.dart';
 import 'cart_screen.dart';
 
+/// Barcode scanner screen.
+/// Flow: Scan → Fetch from Firestore → Show "Product retrieved from database" → Add to Cart.
+/// If not found → Navigate to AddProductScreen with barcode prefilled.
 class ScanScreen extends StatefulWidget {
   const ScanScreen({super.key});
 
@@ -19,206 +16,134 @@ class ScanScreen extends StatefulWidget {
 
 class _ScanScreenState extends State<ScanScreen> {
   bool _isProcessing = false;
-  String? _lastScannedBarcode;
-  ScanStatus _scanStatus = ScanStatus.idle;
-  String? _foundProductName;
-  String? _foundProductPrice;
 
-  Future<void> _onBarcodeScanned(String barcode) async {
-    if (_isProcessing || barcode == _lastScannedBarcode) return;
+  void _onBarcodeDetected(BarcodeCapture capture) {
+    if (_isProcessing) return;
+    final barcode = capture.barcodes.firstOrNull?.rawValue;
+    if (barcode == null || barcode.isEmpty) return;
+    setState(() => _isProcessing = true);
+    _lookupProduct(barcode);
+  }
 
-    setState(() {
-      _isProcessing = true;
-      _lastScannedBarcode = barcode;
-      _scanStatus = ScanStatus.searching;
-    });
-
-    // Haptic feedback on scan
-    HapticFeedback.mediumImpact();
-
-    final productProvider =
-        Provider.of<ProductProvider>(context, listen: false);
-    final product = await productProvider.findByBarcode(barcode);
-
-    if (!mounted) return;
-
-    if (product != null) {
-      // Product found — show status and auto-add to cart
-      final added = productProvider.addToCart(product);
-
-      HapticFeedback.lightImpact();
-
-      setState(() {
-        _scanStatus = ScanStatus.found;
-        _foundProductName = product.name;
-        _foundProductPrice = formatCurrency(product.sellingPrice);
-      });
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(added
-              ? '${product.name} added to cart'
-              : '${product.name} — not enough stock'),
-          backgroundColor: added ? AppColors.success : AppColors.warning,
-          duration: const Duration(seconds: 2),
-          action: added
-              ? SnackBarAction(
-                  label: 'View Cart',
-                  textColor: Colors.white,
-                  onPressed: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(builder: (_) => const CartScreen()),
-                    );
-                  },
-                )
-              : null,
-        ),
-      );
-
-      // Reset after delay to allow re-scanning
-      await Future.delayed(const Duration(seconds: 2));
-    } else {
-      // Product NOT found — try API lookup
-      setState(() => _scanStatus = ScanStatus.fetching);
-
-      final barcodeInfo = await BarcodeLookupService.lookup(barcode);
+  Future<void> _lookupProduct(String barcode) async {
+    try {
+      final querySnapshot = await FirebaseFirestore.instance
+          .collection('products')
+          .where('barcode', isEqualTo: barcode)
+          .limit(1)
+          .get();
 
       if (!mounted) return;
 
-      if (barcodeInfo.hasData) {
-        // API found data — go to add screen with pre-filled data
-        setState(() => _scanStatus = ScanStatus.notFound);
-
-        HapticFeedback.heavyImpact();
-
-        await Future.delayed(const Duration(seconds: 1));
-        if (mounted) {
-          _navigateToAddProduct(barcodeInfo);
-        }
+      if (querySnapshot.docs.isNotEmpty) {
+        final doc = querySnapshot.docs.first;
+        final data = doc.data();
+        _showProductDialog(
+          docId: doc.id,
+          name: data['name'] ?? 'Unknown',
+          price: (data['price'] as num?)?.toDouble() ?? 0.0,
+          costPrice: (data['costPrice'] as num?)?.toDouble() ?? 0.0,
+          barcode: barcode,
+          quantity: (data['quantity'] as num?)?.toInt() ?? 0,
+        );
       } else {
-        // Nothing found anywhere — prompt manual entry
-        setState(() => _scanStatus = ScanStatus.notFound);
-
-        HapticFeedback.heavyImpact();
-
-        await Future.delayed(const Duration(seconds: 1));
-        if (mounted) {
-          _navigateToAddProduct(BarcodeProductInfo(barcode: barcode));
-        }
+        _showNotFoundDialog(barcode);
       }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error: $e')),
+      );
     }
 
-    if (mounted) {
-      setState(() {
-        _isProcessing = false;
-        _lastScannedBarcode = null;
-        _scanStatus = ScanStatus.idle;
-        _foundProductName = null;
-        _foundProductPrice = null;
-      });
-    }
+    Future.delayed(const Duration(seconds: 2), () {
+      if (mounted) setState(() => _isProcessing = false);
+    });
   }
 
-  void _navigateToAddProduct(BarcodeProductInfo info) {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => AddProductScreen(
-          product: null,
-          initialBarcode: info.barcode,
-          initialName: info.name,
-          initialCategory: info.category,
-          initialPrice: info.price,
-          initialSupplier: info.supplier ?? info.brand,
-          initialBrand: info.brand,
-          initialDescription: info.description,
-          initialImageUrl: info.imageUrl,
+  void _showProductDialog({
+    required String docId,
+    required String name,
+    required double price,
+    required double costPrice,
+    required String barcode,
+    required int quantity,
+  }) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Row(
+          children: [
+            Icon(Icons.check_circle, color: Colors.green, size: 28),
+            SizedBox(width: 8),
+            Text('Product Found'),
+          ],
         ),
-      ),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final productProvider = Provider.of<ProductProvider>(context);
-
-    return Scaffold(
-      body: Stack(
-        children: [
-          // Barcode Scanner
-          BarcodeScannerWidget(
-            onBarcodeScanned: _onBarcodeScanned,
-          ),
-
-          // Top bar
-          Positioned(
-            top: MediaQuery.of(context).padding.top + 8,
-            left: 16,
-            right: 16,
-            child: Row(
-              children: [
-                // Manual entry button
-                Container(
-                  decoration: BoxDecoration(
-                    color: Colors.black54,
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: TextButton.icon(
-                    onPressed: _showManualEntryDialog,
-                    icon: const Icon(Icons.keyboard, color: Colors.white,
-                        size: 18),
-                    label: const Text('Manual Entry',
-                        style: TextStyle(color: Colors.white, fontSize: 12)),
-                  ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // ── Research paper terminology: database retrieval confirmation ──
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              decoration: BoxDecoration(
+                color: Colors.blue.shade50,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Row(children: const [
+                Icon(Icons.storage, color: Colors.blue, size: 16),
+                SizedBox(width: 6),
+                Text(
+                  'Product retrieved from database',
+                  style: TextStyle(color: Colors.blue, fontSize: 12),
                 ),
-                const Spacer(),
-                // Cart badge
-                if (!productProvider.isCartEmpty)
-                  GestureDetector(
-                    onTap: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                            builder: (_) => const CartScreen()),
-                      );
-                    },
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 12, vertical: 8),
-                      decoration: BoxDecoration(
-                        color: AppColors.accent,
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                      child: Row(
-                        children: [
-                          const Icon(Icons.shopping_cart,
-                              color: Colors.white, size: 18),
-                          const SizedBox(width: 6),
-                          Text(
-                            '${productProvider.cartItemCount}',
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-              ],
+              ]),
             ),
+            const SizedBox(height: 12),
+            _infoRow('Name', name),
+            const SizedBox(height: 8),
+            _infoRow('Price', '₹${price.toStringAsFixed(2)}'),
+            const SizedBox(height: 8),
+            _infoRow('Barcode', barcode),
+            const SizedBox(height: 8),
+            _infoRow('In Stock', '$quantity'),
+            if (quantity == 0) ...[
+              const SizedBox(height: 8),
+              const Text('⚠ Out of Stock!',
+                  style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
+            ],
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
           ),
-
-          // Scan Status Overlay
-          Positioned(
-            bottom: 100,
-            left: 0,
-            right: 0,
-            child: ScanStatusWidget(
-              status: _scanStatus,
-              productName: _foundProductName,
-              productPrice: _foundProductPrice,
+          ElevatedButton.icon(
+            onPressed: quantity > 0
+                ? () {
+                    CartScreen.cartItems.add({
+                      'docId': docId,
+                      'name': name,
+                      'price': price,
+                      'costPrice': costPrice,
+                      'barcode': barcode,
+                    });
+                    Navigator.pop(ctx);
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text('$name added to cart!'),
+                        backgroundColor: Colors.green,
+                      ),
+                    );
+                  }
+                : null,
+            icon: const Icon(Icons.add_shopping_cart),
+            label: const Text('Add to Cart'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF1E3A5F),
+              foregroundColor: Colors.white,
             ),
           ),
         ],
@@ -226,40 +151,93 @@ class _ScanScreenState extends State<ScanScreen> {
     );
   }
 
-  void _showManualEntryDialog() {
-    final controller = TextEditingController();
+  void _showNotFoundDialog(String barcode) {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Text('Enter Barcode'),
-        content: TextField(
-          controller: controller,
-          decoration: AppDecorations.inputDecoration(
-            'Barcode Number',
-            icon: Icons.qr_code,
-          ),
-          keyboardType: TextInputType.text,
-          autofocus: true,
+        title: const Row(
+          children: [
+            Icon(Icons.error_outline, color: Colors.orange, size: 28),
+            SizedBox(width: 8),
+            Text('Not Found'),
+          ],
+        ),
+        content: Text(
+          'No product found with barcode:\n"$barcode"\n\nWould you like to add this product?',
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
             child: const Text('Cancel'),
           ),
-          ElevatedButton(
+          ElevatedButton.icon(
             onPressed: () {
-              final barcode = controller.text.trim();
-              if (barcode.isNotEmpty) {
-                Navigator.pop(ctx);
-                _onBarcodeScanned(barcode);
-              }
+              Navigator.pop(ctx);
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => AddProductScreen(prefilledBarcode: barcode),
+                ),
+              );
             },
+            icon: const Icon(Icons.add),
+            label: const Text('Add Product'),
             style: ElevatedButton.styleFrom(
-              backgroundColor: AppColors.primary,
+              backgroundColor: const Color(0xFF00BFA6),
               foregroundColor: Colors.white,
             ),
-            child: const Text('Search'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _infoRow(String label, String value) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('$label: ',
+            style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.grey)),
+        Expanded(
+          child: Text(value, style: const TextStyle(fontSize: 16)),
+        ),
+      ],
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Barcode Scanner'),
+        backgroundColor: const Color(0xFF1E3A5F),
+        foregroundColor: Colors.white,
+      ),
+      body: Column(
+        children: [
+          Expanded(flex: 3, child: MobileScanner(onDetect: _onBarcodeDetected)),
+          Expanded(
+            flex: 1,
+            child: Container(
+              width: double.infinity,
+              color: const Color(0xFF1E3A5F),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(
+                    _isProcessing ? Icons.hourglass_top : Icons.qr_code_scanner,
+                    color: Colors.white,
+                    size: 36,
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    _isProcessing ? 'Querying database...' : 'Point camera at a barcode',
+                    style: const TextStyle(color: Colors.white, fontSize: 16),
+                  ),
+                ],
+              ),
+            ),
           ),
         ],
       ),
