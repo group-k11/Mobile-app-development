@@ -79,9 +79,9 @@ class _AddProductScreenState extends State<AddProductScreen> {
       );
       return;
     }
-    if (quantity == null || quantity < 0) {
+    if (quantity == null || quantity <= 0) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Enter a valid quantity')),
+        const SnackBar(content: Text('Enter a valid quantity (must be > 0)')),
       );
       return;
     }
@@ -127,9 +127,9 @@ class _AddProductScreenState extends State<AddProductScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Error: $e')),
       );
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
     }
-
-    setState(() => _isLoading = false);
   }
 
   @override

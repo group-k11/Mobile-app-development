@@ -53,10 +53,6 @@ class _CartScreenState extends State<CartScreen> {
     setState(() => CartScreen.cartItems.clear());
   }
 
-  Future<void> _handlePdfExport(double total) async {
-    final pdf = await PdfService.generatePdfBill(CartScreen.cartItems, total);
-    await PdfService.previewOrSharePdf(pdf);
-  }
 
   Future<void> _checkout() async {
     if (CartScreen.cartItems.isEmpty) return;
@@ -94,9 +90,10 @@ class _CartScreenState extends State<CartScreen> {
         }
       }
 
-      // Capture totals BEFORE clearing cart
+      // Capture totals AND cart snapshot BEFORE clearing — PDF uses this data
       final savedTotal = _totalPrice;
       final savedProfit = _totalProfit;
+      final savedItems = List<Map<String, dynamic>>.from(CartScreen.cartItems);
 
       if (!mounted) return;
       setState(() => CartScreen.cartItems.clear());
@@ -121,7 +118,8 @@ class _CartScreenState extends State<CartScreen> {
           ),
           actions: [
             TextButton.icon(
-              onPressed: () => _handlePdfExport(savedTotal),
+              onPressed: () => PdfService.generatePdfBill(savedItems, savedTotal)
+                  .then((pdf) => PdfService.previewOrSharePdf(pdf)),
               icon: const Icon(Icons.picture_as_pdf),
               label: const Text('PDF'),
             ),
@@ -140,9 +138,9 @@ class _CartScreenState extends State<CartScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Checkout failed: $e')),
       );
+    } finally {
+      if (mounted) setState(() => _isCheckingOut = false);
     }
-
-    if (mounted) setState(() => _isCheckingOut = false);
   }
 
   @override
@@ -231,7 +229,7 @@ class _CartScreenState extends State<CartScreen> {
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          Text('Total (${CartScreen.cartItems.length} items):',
+                      Text('Total (${CartScreen.cartItems.fold<int>(0, (acc, i) => acc + ((i['quantity'] as int?) ?? 1))} items):',
                               style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                           Text('₹${_totalPrice.toStringAsFixed(2)}',
                               style: const TextStyle(
