@@ -5,7 +5,7 @@ import 'add_product_screen.dart';
 import 'cart_screen.dart';
 
 /// Barcode scanner screen.
-/// Flow: Scan → Fetch from Firestore → Show "Product retrieved from database" → Add to Cart.
+
 /// If not found → Navigate to AddProductScreen with barcode prefilled.
 class ScanScreen extends StatefulWidget {
   const ScanScreen({super.key});

@@ -5,7 +5,6 @@ import 'screens/add_product_screen.dart';
 import 'screens/product_list_screen.dart';
 import 'screens/scan_screen.dart';
 import 'screens/cart_screen.dart';
-import 'screens/system_flow_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -30,7 +29,7 @@ class ShelfSenseApp extends StatelessWidget {
   }
 }
 
-/// Home screen with bottom navigation — 6 tabs.
+/// Home screen with bottom navigation — 5 tabs.
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
 
@@ -47,7 +46,6 @@ class _HomeScreenState extends State<HomeScreen> {
     AddProductScreen(),
     ScanScreen(),
     CartScreen(),
-    SystemFlowScreen(),
   ];
 
   @override
@@ -80,10 +78,6 @@ class _HomeScreenState extends State<HomeScreen> {
           BottomNavigationBarItem(
             icon: Icon(Icons.shopping_cart),
             label: 'Cart',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.account_tree),
-            label: 'Flow',
           ),
         ],
       ),

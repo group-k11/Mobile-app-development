@@ -1,83 +1,113 @@
-# ShelfSense — Modern Inventory & Point-of-Sale (POS) System
+# ShelfSense — Smart Inventory & Point-of-Sale App
 
-**ShelfSense** is a comprehensive, cloud-connected Flutter application designed to simplify inventory management and streamline the checkout experience for small to medium-sized businesses. It provides powerful tools for tracking products, processing sales (even offline), and reviewing detailed business analytics.
-
----
-
-## 🚀 Key Features
-
-### 1. Robust Authentication & Role-Based Access
-* **Secure Login**: Built with Firebase Authentication.
-* **Role Management**: Distinguishes between **Owner** and **Staff/Employee** roles. 
-* **Custom Views**: Some features (like the Analytics Dashboard) are strictly locked to the 'Owner' role, while basic sales and scanning are available to all staff.
-
-### 2. Live Dashboard Overview
-* Gain an immediate visual summary of your store's performance.
-* See daily sales totals, recent transaction feeds, and low-stock alerts at a glance.
-
-### 3. Product & Inventory Management
-* **Add/Edit Products**: Easily manage your catalog, including names, descriptions, pricing, and stock quantities.
-* **Real-time Sync**: Changes to inventory are instantly synced across all devices connected to the store via Cloud Firestore.
-* **Low Stock Tracking**: Automatically detect when items fall below a defined threshold to ensure you never run out of critical stock.
-
-### 4. Barcode / QR Code Scanning
-* **Fast Checkout**: Built-in camera scanner to quickly add items to a customer's cart during checkout.
-* **Instant Lookups**: Scan a product on the shelf to instantly pull up its details, verify its price, or update stock levels without manual searching.
-
-### 5. Point of Sale (POS) & Sales Tracking
-* **Cart System**: Compile customer orders dynamically and process checkouts.
-* **Automatic Receipt/Invoice Generation**: Keep organized records of every transaction.
-* **Sales History**: View an ongoing chronological log of all completed sales, accessible whenever you need to process a return or verify a past transaction.
-
-### 6. Offline Support & Syncing 
-* **Work Without Internet**: Sometimes the Wi-Fi drops. ShelfSense uses local storage (`Hive` NoSQL database) to queue up your sales offline.
-* **Auto-Sync**: The moment your device regains network connectivity, the app automatically syncs all queued, offline sales seamlessly to your Firebase database.
-
-### 7. Advanced Analytics (Owner Only)
-* Visual graphs breaking down revenue, top-selling products, and identifying sales trends over time.
-* Empowers business owners to make data-driven decisions on purchasing and store workflow.
-
-### 8. Customizable Settings
-* Configure store details, manage employee accounts, and adjust app preferences directly from the settings menu.
+**ShelfSense** is a Flutter application that connects to Firebase to provide real-time inventory tracking, intelligent stock alerts, barcode-based product lookup, and a complete checkout flow for small businesses.
 
 ---
 
-## 🛠️ Architecture & Tech Stack
+## 🚀 Features
 
-ShelfSense utilizes a modern, robust mobile stack:
+### 1. 📊 Dashboard — Sales Analytics & Smart Alerts
+- Displays **today's live sales metrics**: Total Revenue, Total Profit, Items Sold, and Transaction Count — all streamed live from Firestore's `sales` collection.
+- **Intelligent Stock Alerts**: Scans all products in real-time and surfaces per-product warnings:
+  - 🔴 **Out of Stock** — quantity is 0
+  - 🟠 **Threshold-based Stock Alert** — quantity is below 5
+  - 🔵 **Reorder Recommended** — quantity is below 3
+  - ⚫ **Inactivity-based Detection** — not sold in the last 30+ days
+  - 🔴 **Expired** — expiry date is in the past
+  - 🟠 **Expiring Soon** — expiry date is within 7 days
 
-* **Frontend Framework:** Flutter (Dart) — offering beautiful, compiled native experiences across iOS and Android.
-* **State Management:** `Provider` — to efficiently manage auth state, product catalogs, and the live shopping cart.
-* **Backend & Database:** Firebase —
-  * **Firebase Authentication:** For secure user sign-ups and logins.
-  * **Cloud Firestore:** A live, NoSQL database for syncing products and sales across devices in real-time.
-* **Local Storage:** `Hive` — a lightweight and incredibly fast local database used for caching and saving offline transactions.
-* **Connectivity Tracking:** Uses `connectivity_plus` to monitor network states and trigger background syncs when returning online.
+### 2. 📦 Product List
+- Fetches and displays all products from Firestore, ordered alphabetically by name.
+- Each product card shows: name, barcode, selling price, quantity, cost price, profit margin, expiry date, and smart status tags.
+- Live-streaming via `StreamBuilder` — no manual refresh needed.
+
+### 3. ➕ Add Product
+- Form-based screen to add new products to the Firestore `products` collection.
+- **Fields**: Product Name, Selling Price, Cost Price (optional), Barcode, Quantity, Expiry Date (optional date picker).
+- Validates all required fields before saving.
+- Automatically **prefills the barcode** if opened from the Scan screen after scanning an unknown barcode.
+
+### 4. 📷 Barcode Scanner
+- Uses the device camera (via `mobile_scanner`) to scan product barcodes.
+- **If product is found in Firestore**: Displays a dialog with product details and an "Add to Cart" button.
+- **If product is NOT found**: Prompts the user to add the new product, pre-filling the scanned barcode in the Add Product form.
+- Shows "Product retrieved from database" confirmation on a successful lookup.
+
+### 5. 🛒 Cart & Checkout
+- Cart is a global in-memory list (`CartScreen.cartItems`) shared between the Scan and Cart screens.
+- Displays all scanned items with individual prices and a running total + estimated profit.
+- **Checkout flow**:
+  1. Writes a new document to the Firestore `sales` collection (with total amount, profit, item count, timestamp).
+  2. Decrements the `quantity` field for each sold product in Firestore.
+  3. Updates `lastSoldDate` on each sold product (used by the inactivity alert).
+  4. Shows a "Sale Complete!" confirmation dialog with the final total and profit.
 
 ---
 
-## ⚙️ How It Works (The Core Workflow)
+## 🛠️ Tech Stack
 
-1. **Initialization**: On launch, the app verifies if the user is already authenticated. If so, they bypass the login screen. It simultaneously boots up the Hive local storage for edge-case offline tracking.
-2. **Data Streaming**: Once logged in, the `ProductProvider` and `SalesProvider` attach listeners to Cloud Firestore. Any change in the database (e.g., another employee updating a price) reflects immediately on the UI.
-3. **Transaction Flow**:
-   * A staff member opens the **Scan** tab.
-   * They scan items to add them to the checkout cart.
-   * On completing the sale, the app attempts to push the transaction to Firestore and deducts inventory quantities.
-   * *If offline*, the transaction is serialized and saved locally to Hive. 
-4. **Offline Recovery**: The app constantly listens for network changes. When the network comes back online, a silent background routine automatically pushes the cached Hive transactions to Firebase and clears the local queue.
+| Layer | Technology |
+|---|---|
+| **Framework** | Flutter (Dart 3) |
+| **Database** | Cloud Firestore (real-time streaming) |
+| **Backend Init** | Firebase Core |
+| **Barcode Scanning** | `mobile_scanner ^6.0.7` |
+| **UI** | Material Design 3 |
 
 ---
 
-## 🚦 Getting Started & Setup
+## 📁 Project Structure
 
-For instructions on configuring the Firebase backend to run the app yourself, refer to the [FIREBASE_SETUP.md](./FIREBASE_SETUP.md) file included in this repository.
+```
+lib/
+├── main.dart                    # App entry point, Firebase init, 5-tab navigation
+└── screens/
+    ├── dashboard_screen.dart    # Sales analytics + intelligent stock alerts
+    ├── product_list_screen.dart # Full product list with status tags
+    ├── add_product_screen.dart  # Add new product form
+    ├── scan_screen.dart         # Camera barcode scanner + Firestore lookup
+    └── cart_screen.dart         # Cart management + checkout + Firestore writes
+```
 
-To run the application locally:
-```bash
-# Get dependencies
+---
+
+## ⚙️ Firestore Data Model
+
+### `products` collection
+| Field | Type | Description |
+|---|---|---|
+| `name` | String | Product name |
+| `price` | Number | Selling price |
+| `costPrice` | Number | Purchase cost (for profit calculation) |
+| `barcode` | String | Barcode string used for lookups |
+| `quantity` | Number | Current stock level |
+| `expiryDate` | Timestamp | Optional expiry date |
+| `lastSoldDate` | Timestamp | Updated on every checkout |
+| `createdAt` | Timestamp | Server-set creation time |
+
+### `sales` collection
+| Field | Type | Description |
+|---|---|---|
+| `totalAmount` | Number | Total sale value |
+| `totalProfit` | Number | Total profit for this transaction |
+| `itemCount` | Number | Number of items in the sale |
+| `items` | Array | Snapshot of each sold item |
+| `timestamp` | Timestamp | Server-set sale time |
+
+---
+
+## 🚦 Getting Started
+
+### Prerequisites
+- Flutter SDK (`^3.11.1`)
+- A Firebase project with **Cloud Firestore** enabled
+- Place your `google-services.json` (Android) in `android/app/`
+
+### Run the app
+```powershell
+# Install dependencies
 flutter pub get
 
-# Run the app
+# Run on a connected device or emulator
 flutter run
 ```
