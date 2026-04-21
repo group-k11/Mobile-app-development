@@ -30,6 +30,34 @@ class ProductListScreen extends StatelessWidget {
     return tags;
   }
 
+  Future<void> _deleteProduct(BuildContext context, String docId, String name) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete Product'),
+        content: Text('Are you sure you want to delete "$name"? This cannot be undone.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true) {
+      await FirebaseFirestore.instance.collection('products').doc(docId).delete();
+    }
+  }
+
   Widget _tag(String text, Color color) {
     return Container(
       margin: const EdgeInsets.only(right: 6, top: 4),
@@ -117,6 +145,11 @@ class ProductListScreen extends StatelessWidget {
                                 style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF00BFA6))),
                             Text('Qty: $quantity', style: const TextStyle(fontSize: 13, color: Colors.grey)),
                           ],
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.delete_outline, color: Colors.red),
+                          tooltip: 'Delete product',
+                          onPressed: () => _deleteProduct(context, docs[index].id, name),
                         ),
                       ]),
                       if (costPrice > 0 || expiryTs != null) ...[
